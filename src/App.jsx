@@ -22,6 +22,7 @@ const VRMAvatar = ({ url, phoneme }) => {
         const vrm = gltf.userData.vrm;
         vrm.scene.rotation.y = Math.PI;
         vrmRef.current = vrm;
+        vrm.humanoid.setPose("rest"); // Set to neutral rest pose, fix T-pose
       },
       undefined,
       console.error
@@ -33,29 +34,38 @@ const VRMAvatar = ({ url, phoneme }) => {
     if (vrm) {
       const time = clock.getElapsedTime();
 
-      // Breathing animation
-      vrm.scene.position.y = 0.02 * Math.sin(time * 1.5);
+      // Gentle breathing
+      vrm.scene.position.y = 0.01 * Math.sin(time * 2);
 
-      // Head nodding
-      const headBone = vrm.humanoid.getNormalizedBoneNode("head");
-      if (headBone) {
-        headBone.rotation.x = 0.1 * Math.sin(time * 1.2);
-        headBone.rotation.z = 0.05 * Math.sin(time * 0.8);
+      // Smooth head movement (subtle idle animation)
+      const head = vrm.humanoid.getNormalizedBoneNode("head");
+      if (head) {
+        head.rotation.x = 0.03 * Math.sin(time * 0.8);
+        head.rotation.y = 0.03 * Math.sin(time * 0.6);
+        head.rotation.z = 0.02 * Math.sin(time * 1.2);
       }
 
-      // Automatic blinking every few seconds
-      const blinkValue = Math.sin(time * 3) > 0.95 ? 1.0 : 0.0;
+      // Shoulder movement (natural idle stance)
+      const leftShoulder = vrm.humanoid.getNormalizedBoneNode("leftShoulder");
+      const rightShoulder = vrm.humanoid.getNormalizedBoneNode("rightShoulder");
+      if (leftShoulder && rightShoulder) {
+        leftShoulder.rotation.z = 0.02 * Math.sin(time);
+        rightShoulder.rotation.z = -0.02 * Math.sin(time);
+      }
 
-      // Reset all expressions
+      // Natural blinking
+      const blinkValue = Math.abs(Math.sin(time * 0.5)) > 0.98 ? 1.0 : 0.0;
+
+      // Reset expressions
       allExpressions.forEach((exp) => vrm.expressionManager.setValue(exp, 0));
 
-      // Apply current phoneme
+      // Phoneme expressions
       const currentExpression = phonemeMap[phonemeRef.current];
       if (currentExpression) {
         vrm.expressionManager.setValue(currentExpression, 1.0);
       }
 
-      // Apply blinking
+      // Blink expression
       vrm.expressionManager.setValue("blink", blinkValue);
 
       vrm.expressionManager.update();
@@ -93,7 +103,7 @@ function App() {
   };
 
   return (
-    <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
+    <div style={{ width: "100vw", height: "150vh", position: "relative" }}>
       <Canvas camera={{ position: [0, 1.5, 3] }}>
         <ambientLight intensity={0.8} />
         <directionalLight position={[5, 10, 7]} intensity={1} />
