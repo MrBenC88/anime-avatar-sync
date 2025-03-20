@@ -1,25 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { VRMLoaderPlugin } from "@pixiv/three-vrm";
-
-const phonemeMap = {
-  A: "aa", // "ah", open mouth
-  B: "ih", // "ih", slight open
-  C: "ee", // "ee", smile-like
-  D: "oh", // "oh", round shape
-  E: "ou", // "ou", pursed lips
-  F: "neutral", // default neutral
-  G: "neutral", // neutral
-  H: "neutral", // silence
-  X: "neutral", // silence
-};
-
-const allExpressions = ["aa", "ih", "ee", "oh", "ou", "neutral"];
+import { allExpressions, phonemeMap } from "./constants";
 
 const VRMAvatar = ({ url, phoneme }) => {
-  const [vrm, setVrm] = useState(null);
+  const vrmRef = useRef();
   const phonemeRef = useRef("neutral");
 
   useEffect(() => {
@@ -34,34 +21,53 @@ const VRMAvatar = ({ url, phoneme }) => {
       (gltf) => {
         const vrm = gltf.userData.vrm;
         vrm.scene.rotation.y = Math.PI;
-        setVrm(vrm);
+        vrmRef.current = vrm;
       },
       undefined,
       console.error
     );
   }, [url]);
 
-  useFrame((_, delta) => {
+  useFrame(({ clock }, delta) => {
+    const vrm = vrmRef.current;
     if (vrm) {
+      const time = clock.getElapsedTime();
+
+      // Breathing animation
+      vrm.scene.position.y = 0.02 * Math.sin(time * 1.5);
+
+      // Head nodding
+      const headBone = vrm.humanoid.getNormalizedBoneNode("head");
+      if (headBone) {
+        headBone.rotation.x = 0.1 * Math.sin(time * 1.2);
+        headBone.rotation.z = 0.05 * Math.sin(time * 0.8);
+      }
+
+      // Automatic blinking every few seconds
+      const blinkValue = Math.sin(time * 3) > 0.95 ? 1.0 : 0.0;
+
       // Reset all expressions
       allExpressions.forEach((exp) => vrm.expressionManager.setValue(exp, 0));
 
-      // Apply current phoneme expression accurately
+      // Apply current phoneme
       const currentExpression = phonemeMap[phonemeRef.current];
       if (currentExpression) {
         vrm.expressionManager.setValue(currentExpression, 1.0);
       }
+
+      // Apply blinking
+      vrm.expressionManager.setValue("blink", blinkValue);
 
       vrm.expressionManager.update();
       vrm.update(delta);
     }
   });
 
-  return vrm ? <primitive object={vrm.scene} /> : null;
+  return vrmRef.current ? <primitive object={vrmRef.current.scene} /> : null;
 };
 
 function App() {
-  const [phoneme, setPhoneme] = useState("X"); // Default to neutral
+  const [phoneme, setPhoneme] = useState("X");
 
   const speakWithLipSync = async () => {
     const response = await fetch("/data/phonemes.json");
@@ -69,11 +75,8 @@ function App() {
 
     const text = "Hello, this is AI-driven speech!";
     const utterance = new SpeechSynthesisUtterance(text);
-
-    // Adjust speech rate to match phoneme data duration
     const duration = mouthCues[mouthCues.length - 1].end;
     utterance.rate = Math.max(0.5, Math.min(2, (text.length / duration) * 0.1));
-
     speechSynthesis.speak(utterance);
 
     const startTime = performance.now();
@@ -81,9 +84,7 @@ function App() {
     const animate = () => {
       const elapsed = (performance.now() - startTime) / 1000;
       const cue = mouthCues.find((c) => elapsed >= c.start && elapsed < c.end);
-
       setPhoneme(cue ? cue.value : "X");
-
       if (elapsed < duration) requestAnimationFrame(animate);
       else setPhoneme("X");
     };
